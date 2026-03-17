@@ -1,0 +1,45 @@
+{
+  "name": "sabilly",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "axios": "^1.12.2",
+    "dotenv": "^17.2.3",
+    "flutterwave-node-v3": "^1.3.0",
+    "flutterwave-react-v3": "^1.0.7",
+    "lucide-react": "^0.539.0",
+    "next": "^16.0.7",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "react-hot-toast": "^2.6.0",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^7.9.3"
+  },
+  "overrides": {
+    "flutterwave-react-v3": {
+      "react": "$react",
+      "react-dom": "$react-dom"
+    }
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4.1.14",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.27",
+    "baseline-browser-mapping": "^2.9.19",
+    "eslint": "^9",
+    "eslint-config-next": "15.4.5",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5"
+  }
+}
