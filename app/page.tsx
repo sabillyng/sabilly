@@ -18,6 +18,7 @@ import {
   FireIcon
 } from '@heroicons/react/24/outline';
 import { Provider, Service } from './types/service';
+import { AuthPopup } from './components/auth/AuthPopup';
 
 export default function HomePage() {
   const { 
@@ -40,6 +41,10 @@ export default function HomePage() {
     totalServices: 0,
     verifiedProfessionals: 0
   });
+
+    const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showAuthPopup, setShowAuthPopup] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   // Load data on component mount
   useEffect(() => {
@@ -90,6 +95,12 @@ export default function HomePage() {
       setRecentServices(services.slice(0, 6));
     }
   }, [services]);
+
+    const openAuthPopup = (mode: 'login' | 'register') => {
+    setAuthMode(mode);
+    setShowAuthPopup(true);
+    setShowUserMenu(false);
+  };
 
   // Get popular categories with real counts
   const popularCategories = [
@@ -167,13 +178,13 @@ export default function HomePage() {
                 <WrenchIcon className="h-12 w-12 text-orange-600 mb-4" />
                 <h3 className="text-xl font-bold mb-2">Are you an Artisan or Business Owner?</h3>
                 <p className="text-gray-700 mb-4">List your services and connect with customers today</p>
-                <Link
-                  href="/auth/register"
-                  className="inline-flex items-center bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors"
-                >
-                  Join as Professional
+                <button
+                  onClick={() => openAuthPopup('register')}
+                  className=" cursor-pointer inline-flex items-center bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    Join as Professional
                   <ArrowRightIcon className="h-4 w-4 ml-2" />
-                </Link>
+                  </button>
               </div>
               <div className="text-6xl opacity-20">👨‍🔧</div>
             </div>
@@ -396,6 +407,13 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+      
+            {/* Auth Popup */}
+            <AuthPopup 
+              isOpen={showAuthPopup}
+              onClose={() => setShowAuthPopup(false)}
+              initialMode={authMode}
+            />
     </>
   );
 }
