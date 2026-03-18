@@ -15,7 +15,7 @@ import {
 import { Provider } from '../../types/service';
 
 export default function ProvidersPage() {
-  const { providers, getProviders, loadingProvider } = useService();
+  const { providers, getProviders, loadingProviders } = useService();
   
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -334,7 +334,7 @@ export default function ProvidersPage() {
         </div>
 
         {/* Loading State */}
-        {loadingProvider && providers.length === 0 ? (
+        {loadingProviders && providers.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
             <p className="text-gray-500">Loading professionals...</p>
