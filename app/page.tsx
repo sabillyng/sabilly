@@ -24,11 +24,12 @@ export default function HomePage() {
   const { 
     providers, 
     getProviders, 
-    loadingProvider,
+    loadingProviders, // Fixed: changed from loadingProvider to loadingProviders
     services, 
     getServices, 
     loadingServices,
-    getFavourites
+    getFavourites,
+    getTopRatedProviders // Added this if you want to use the dedicated endpoint
   } = useService();
   
   const { user } = useUser();
@@ -42,7 +43,7 @@ export default function HomePage() {
     verifiedProfessionals: 0
   });
 
-    const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAuthPopup, setShowAuthPopup] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
@@ -55,6 +56,10 @@ export default function HomePage() {
       // Get recent services
       await getServices({ limit: 8, sortBy: 'createdAt', sortOrder: 'desc' });
       
+      // Get top rated providers using the dedicated endpoint (optional)
+      // const topRated = await getTopRatedProviders(4);
+      // setTopRatedProviders(topRated);
+      
       // Get user's favourites if logged in
       if (user) {
         await getFavourites();
@@ -62,7 +67,7 @@ export default function HomePage() {
     };
     
     loadHomeData();
-  }, [user]);
+  }, [user, getProviders, getServices, getFavourites, getTopRatedProviders]);
 
   // Process provider data when it changes
   useEffect(() => {
@@ -80,10 +85,23 @@ export default function HomePage() {
       const businesses = providers.filter(p => p.role === 'business_owner').length;
       const verified = providers.filter(p => p.kycVerified).length;
 
+      // Calculate total services from providers
+      const totalServicesCount = providers.reduce((acc, p) => {
+        // Check if provider has services array (from populated data)
+        if (p.services && Array.isArray(p.services)) {
+          return acc + p.services.length;
+        }
+        // Check if provider has stats with totalServices
+        if (p.stats && p.stats.totalServices) {
+          return acc + p.stats.totalServices;
+        }
+        return acc;
+      }, 0);
+
       setStats({
         totalArtisans: artisans,
         totalBusinesses: businesses,
-        totalServices: providers.reduce((acc, p) => acc + (p.services?.length || 0), 0),
+        totalServices: totalServicesCount,
         verifiedProfessionals: verified
       });
     }
@@ -96,7 +114,7 @@ export default function HomePage() {
     }
   }, [services]);
 
-    const openAuthPopup = (mode: 'login' | 'register') => {
+  const openAuthPopup = (mode: 'login' | 'register') => {
     setAuthMode(mode);
     setShowAuthPopup(true);
     setShowUserMenu(false);
@@ -162,8 +180,8 @@ export default function HomePage() {
     },
   ];
 
-  // Loading state
-  const isLoading = loadingProvider || loadingServices;
+  // Loading state - use the correct property names
+  const isLoading = loadingProviders || loadingServices;
 
   return (
     <>
@@ -180,11 +198,11 @@ export default function HomePage() {
                 <p className="text-gray-700 mb-4">List your services and connect with customers today</p>
                 <button
                   onClick={() => openAuthPopup('register')}
-                  className=" cursor-pointer inline-flex items-center bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors"
-                  >
-                    Join as Professional
+                  className="cursor-pointer inline-flex items-center bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-700 transition-colors"
+                >
+                  Join as Professional
                   <ArrowRightIcon className="h-4 w-4 ml-2" />
-                  </button>
+                </button>
               </div>
               <div className="text-6xl opacity-20">👨‍🔧</div>
             </div>
@@ -196,19 +214,20 @@ export default function HomePage() {
                 <BuildingStorefrontIcon className="h-12 w-12 text-emerald-600 mb-4" />
                 <h3 className="text-xl font-bold mb-2">Need a Service?</h3>
                 <p className="text-gray-700 mb-4">Find trusted professionals near you</p>
-                <Link
-                  href="/services"
-                  className="inline-flex items-center bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
-                >
-                  Find Services
-                </Link>
-                <Link
-                  href="/providers"
-                  className="inline-flex items-center bg-amber-700 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors ml-5"
-                >
-                  Find Providers
-                </Link>
-
+                <div className="flex flex-wrap gap-3">
+                  <Link
+                    href="/services"
+                    className="inline-flex items-center bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+                  >
+                    Find Services
+                  </Link>
+                  <Link
+                    href="/providers"
+                    className="inline-flex items-center bg-amber-600 text-white px-6 py-2 rounded-lg hover:bg-amber-700 transition-colors"
+                  >
+                    Find Providers
+                  </Link>
+                </div>
               </div>
               <div className="text-6xl opacity-20">🏠</div>
             </div>
@@ -249,7 +268,7 @@ export default function HomePage() {
                         <h2 className="text-2xl font-bold">Top Rated Professionals</h2>
                       </div>
                       <Link 
-                        href="/professionals/top-rated"
+                        href="/providers?filter=top-rated"
                         className="text-emerald-600 hover:text-emerald-700 text-sm font-medium flex items-center"
                       >
                         View All
@@ -408,12 +427,12 @@ export default function HomePage() {
         </div>
       </main>
       
-            {/* Auth Popup */}
-            <AuthPopup 
-              isOpen={showAuthPopup}
-              onClose={() => setShowAuthPopup(false)}
-              initialMode={authMode}
-            />
+      {/* Auth Popup */}
+      <AuthPopup 
+        isOpen={showAuthPopup}
+        onClose={() => setShowAuthPopup(false)}
+        initialMode={authMode}
+      />
     </>
   );
 }

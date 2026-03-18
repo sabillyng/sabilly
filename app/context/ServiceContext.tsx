@@ -7,7 +7,10 @@ import type {
   ServiceFilters,
   Provider,
   RatingData,
-  Job
+  Job,
+  FavouritesResponse,
+  ProvidersResponse,
+  ServicesResponse
 } from '../types/service';
 import { useUser } from './UserContext';
 import { useMessage } from '../components/ui/MessagePopup';
@@ -20,8 +23,14 @@ interface ServiceContextType {
   favourites: Provider[];
   loading: boolean;
   loadingServices: boolean;
-  loadingProvider: boolean;
+  loadingProviders: boolean;
   pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } | null;
+  providersPagination: {
     total: number;
     page: number;
     limit: number;
@@ -30,16 +39,21 @@ interface ServiceContextType {
 
   // Service methods
   createService: (serviceData: CreateServiceData) => Promise<Service | null>;
+  updateService: (id: string, serviceData: Partial<CreateServiceData>) => Promise<Service | null>;
   getServices: (filters?: ServiceFilters) => Promise<void>;
   getServiceById: (id: string) => Promise<Service | null>;
   applyForService: (id: string) => Promise<Job | null>;
   deleteService: (id: string) => Promise<boolean>;
   completeService: (id: string) => Promise<boolean>;
+  toggleServiceStatus: (id: string, isActive: boolean) => Promise<boolean>;
   rateProvider: (serviceId: string, rating: number, reviewText?: string) => Promise<boolean>;
 
   // Provider methods
-  getProviders: () => Promise<void>;
+  getProviders: (filters?: { page?: number; limit?: number; search?: string; category?: string; minRating?: number }) => Promise<void>;
   getProviderById: (id: string) => Promise<Provider | null>;
+  getTopRatedProviders: (limit?: number) => Promise<Provider[]>;
+  searchProvidersBySkill: (skill: string, page?: number, limit?: number) => Promise<Provider[]>;
+  getProviderServices: (providerId: string, includeInactive?: boolean) => Promise<Service[]>;
 
   // Favourites methods
   addToFavourites: (providerId: string) => Promise<boolean>;
@@ -61,8 +75,9 @@ export function ServiceProvider({ children }: { children: ReactNode }) {
   const [favourites, setFavourites] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
-  const [loadingProvider, setLoadingProvider] = useState(false);
+  const [loadingProviders, setLoadingProviders] = useState(false);
   const [pagination, setPagination] = useState<ServiceContextType['pagination']>(null);
+  const [providersPagination, setProvidersPagination] = useState<ServiceContextType['pagination']>(null);
 
   const { user } = useUser();
   const { showSuccess, showError } = useMessage();
@@ -95,22 +110,52 @@ export function ServiceProvider({ children }: { children: ReactNode }) {
     }
   };
 
-const getServices = useCallback(async (filters?: ServiceFilters) => {
-  setLoadingServices(true);
-  try {
-    const response = await serviceApi.getServices(filters);
-    
-    if (response.success) {
-      setServices(response.data);
-      setPagination(response.pagination);
+  const updateService = async (id: string, serviceData: Partial<CreateServiceData>): Promise<Service | null> => {
+    if (!user) {
+      showError('You must be logged in to update a service');
+      return null;
     }
-  } catch (error) {
-    console.error('Error fetching services:', error);
-    showError('Failed to fetch services');
-  } finally {
-    setLoadingServices(false);
-  }
-}, []);
+
+    setLoading(true);
+    try {
+      const response = await serviceApi.updateService(id, serviceData);
+      
+      if (response.success && response.data) {
+        setServices(prev => prev.map(s => s._id === id ? response.data! : s));
+        if (currentService?._id === id) {
+          setCurrentService(response.data);
+        }
+        showSuccess(response.message || 'Service updated successfully');
+        return response.data;
+      } else {
+        showError(response.message || 'Failed to update service');
+        return null;
+      }
+    } catch (error) {
+      const message = error instanceof ServiceError ? error.message : 'Failed to update service';
+      showError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getServices = useCallback(async (filters?: ServiceFilters) => {
+    setLoadingServices(true);
+    try {
+      const response = await serviceApi.getServices(filters);
+      
+      if (response.success) {
+        setServices(response.data);
+        setPagination(response.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      showError('Failed to fetch services');
+    } finally {
+      setLoadingServices(false);
+    }
+  }, [showError]);
 
   const getServiceById = async (id: string): Promise<Service | null> => {
     setLoading(true);
@@ -184,13 +229,39 @@ const getServices = useCallback(async (filters?: ServiceFilters) => {
     }
   };
 
+  const toggleServiceStatus = async (id: string, isActive: boolean): Promise<boolean> => {
+    setLoading(true);
+    try {
+      const response = await serviceApi.toggleServiceStatus(id, isActive);
+      
+      if (response.success) {
+        setServices(prev => prev.map(s => 
+          s._id === id ? { ...s, isActive } : s
+        ));
+        if (currentService?._id === id) {
+          setCurrentService(prev => prev ? { ...prev, isActive } : null);
+        }
+        showSuccess(response.message || `Service ${isActive ? 'activated' : 'deactivated'} successfully`);
+        return true;
+      } else {
+        showError(response.message || 'Failed to update service status');
+        return false;
+      }
+    } catch (error) {
+      const message = error instanceof ServiceError ? error.message : 'Failed to update service status';
+      showError(message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const completeService = async (id: string): Promise<boolean> => {
     setLoading(true);
     try {
       const response = await serviceApi.completeService(id);
       
       if (response.success) {
-        // Update the service in the list if it exists
         setServices(prev => prev.map(s => 
           s._id === id ? { ...s, status: 'completed' } : s
         ));
@@ -234,24 +305,25 @@ const getServices = useCallback(async (filters?: ServiceFilters) => {
   };
 
   // Provider Methods
-  const getProviders = async () => {
-    setLoadingProvider(true);
+  const getProviders = useCallback(async (filters?: { page?: number; limit?: number; search?: string; category?: string; minRating?: number }) => {
+    setLoadingProviders(true);
     try {
-      const response = await serviceApi.getProviders();
+      const response = await serviceApi.getProviders(filters);
       
       if (response.success) {
         setProviders(response.data);
+        setProvidersPagination(response.pagination);
       }
     } catch (error) {
       const message = error instanceof ServiceError ? error.message : 'Failed to fetch providers';
       showError(message);
     } finally {
-      setLoadingProvider(false);
+      setLoadingProviders(false);
     }
-  };
+  }, [showError]);
 
   const getProviderById = async (id: string): Promise<Provider | null> => {
-    setLoadingProvider(true);
+    setLoadingProviders(true);
     try {
       const response = await serviceApi.getProviderById(id);
       
@@ -266,7 +338,61 @@ const getServices = useCallback(async (filters?: ServiceFilters) => {
       showError(message);
       return null;
     } finally {
-      setLoadingProvider(false);
+      setLoadingProviders(false);
+    }
+  };
+
+  const getTopRatedProviders = async (limit?: number): Promise<Provider[]> => {
+    setLoadingProviders(true);
+    try {
+      const response = await serviceApi.getTopRatedProviders(limit);
+      
+      if (response.success) {
+        return response.data;
+      }
+      return [];
+    } catch (error) {
+      const message = error instanceof ServiceError ? error.message : 'Failed to fetch top rated providers';
+      showError(message);
+      return [];
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
+  const searchProvidersBySkill = async (skill: string, page?: number, limit?: number): Promise<Provider[]> => {
+    setLoadingProviders(true);
+    try {
+      const response = await serviceApi.searchProvidersBySkill(skill, page, limit);
+      
+      if (response.success) {
+        return response.data;
+      }
+      return [];
+    } catch (error) {
+      const message = error instanceof ServiceError ? error.message : 'Failed to search providers';
+      showError(message);
+      return [];
+    } finally {
+      setLoadingProviders(false);
+    }
+  };
+
+  const getProviderServices = async (providerId: string, includeInactive?: boolean): Promise<Service[]> => {
+    setLoadingServices(true);
+    try {
+      const response = await serviceApi.getProviderServices(providerId, includeInactive);
+      
+      if (response.success) {
+        return response.data;
+      }
+      return [];
+    } catch (error) {
+      const message = error instanceof ServiceError ? error.message : 'Failed to fetch provider services';
+      showError(message);
+      return [];
+    } finally {
+      setLoadingServices(false);
     }
   };
 
@@ -356,17 +482,23 @@ const getServices = useCallback(async (filters?: ServiceFilters) => {
     favourites,
     loading,
     loadingServices,
-    loadingProvider,
+    loadingProviders,
     pagination,
+    providersPagination,
     createService,
+    updateService,
     getServices,
     getServiceById,
     applyForService,
     deleteService,
+    toggleServiceStatus,
     completeService,
     rateProvider,
     getProviders,
     getProviderById,
+    getTopRatedProviders,
+    searchProvidersBySkill,
+    getProviderServices,
     addToFavourites,
     removeFromFavourites,
     getFavourites,

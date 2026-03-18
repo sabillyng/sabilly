@@ -9,11 +9,12 @@ import {
   FavouritesResponse,
   RatingData,
   RatingResponse,
-  Job
+  Job,
+  Service
 } from '../types/service';
 import { cookieService } from '../lib/cookies';
 
-// Constants for service endpoints
+// Constants for service endpoints - Updated to match your backend routes
 const SERVICE_ENDPOINTS = {
   CREATE: '/service/create-service',
   GET_ALL: '/service/all-services',
@@ -21,9 +22,14 @@ const SERVICE_ENDPOINTS = {
   APPLY: (id: string) => `/service/apply/${id}`,
   DELETE: (id: string) => `/service/delete/${id}`,
   COMPLETE: (id: string) => `/service/complete/${id}`,
+  TOGGLE_STATUS: (id: string) => `/service/${id}/toggle`,
+  UPDATE: (id: string) => `/service/update-service/${id}`,
   RATE: (id: string) => `/service/service/${id}/rate`,
   GET_PROVIDERS: '/service/providers',
   GET_PROVIDER_BY_ID: (id: string) => `/service/provider/${id}`,
+  GET_TOP_RATED_PROVIDERS: '/service/top-rated-providers',
+  SEARCH_SKILL: '/service/search-skill',
+  GET_PROVIDER_SERVICES: (providerId: string) => `/service/provider/${providerId}`,
   ADD_TO_FAVOURITES: (id: string) => `/service/favourites/${id}`,
   REMOVE_FROM_FAVOURITES: (id: string) => `/service/favourites/${id}`,
   GET_FAVOURITES: '/service/favourites',
@@ -76,12 +82,12 @@ api.interceptors.response.use(
     
     if (error.response) {
       const status = error.response.status;
-      const errorData = error.response.data as { message?: string };
+      const errorData = error.response.data as { message?: string; success?: boolean };
       
       if (status === 401 || status === 403) {
         // Handle unauthorized - redirect to login
         if (typeof window !== 'undefined') {
-          window.location.href = '/';
+          window.location.href = '/auth/login';
         }
       }
       
@@ -110,14 +116,23 @@ class ServiceApiService {
       // Append all text fields
       formData.append('title', serviceData.title);
       if (serviceData.description) formData.append('description', serviceData.description);
-      if (serviceData.priceRange) formData.append('priceRange', JSON.stringify(serviceData.priceRange));
+      if (serviceData.priceRange) {
+        // If priceRange is an object with string property, send it as JSON string
+        if (typeof serviceData.priceRange === 'object') {
+          formData.append('priceRange', JSON.stringify(serviceData.priceRange));
+        } else {
+          formData.append('priceRange', serviceData.priceRange);
+        }
+      }
       formData.append('category', serviceData.category);
       if (serviceData.location) formData.append('location', serviceData.location);
       
       // Append images
-      serviceData.images.forEach((image, index) => {
-        formData.append('images', image);
-      });
+      if (serviceData.images && serviceData.images.length > 0) {
+        serviceData.images.forEach((image) => {
+          formData.append('images', image);
+        });
+      }
 
       const response = await api.post<ServiceResponse>(
         SERVICE_ENDPOINTS.CREATE,
@@ -134,7 +149,57 @@ class ServiceApiService {
       if (error instanceof ServiceError) {
         throw error;
       }
+      if (error instanceof AxiosError && error.response?.data?.message) {
+        throw new ServiceError(error.response.data.message);
+      }
       throw new ServiceError('Failed to create service');
+    }
+  }
+
+  // Update a service
+  async updateService(id: string, serviceData: Partial<CreateServiceData>): Promise<ServiceResponse> {
+    try {
+      const formData = new FormData();
+      
+      // Append all text fields if they exist
+      if (serviceData.title) formData.append('title', serviceData.title);
+      if (serviceData.description) formData.append('description', serviceData.description);
+      if (serviceData.priceRange) {
+        if (typeof serviceData.priceRange === 'object') {
+          formData.append('priceRange', JSON.stringify(serviceData.priceRange));
+        } else {
+          formData.append('priceRange', serviceData.priceRange);
+        }
+      }
+      if (serviceData.category) formData.append('category', serviceData.category);
+      if (serviceData.location) formData.append('location', serviceData.location);
+      
+      // Append images if new ones are provided
+      if (serviceData.images && serviceData.images.length > 0) {
+        serviceData.images.forEach((image) => {
+          formData.append('images', image);
+        });
+      }
+
+      const response = await api.put<ServiceResponse>(
+        SERVICE_ENDPOINTS.UPDATE(id),
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        throw error;
+      }
+      if (error instanceof AxiosError && error.response?.data?.message) {
+        throw new ServiceError(error.response.data.message);
+      }
+      throw new ServiceError('Failed to update service');
     }
   }
 
@@ -190,7 +255,7 @@ class ServiceApiService {
     }
   }
 
-  // Delete service
+  // Delete service (soft delete)
   async deleteService(id: string): Promise<{ success: boolean; message: string }> {
     try {
       const response = await api.delete(SERVICE_ENDPOINTS.DELETE(id));
@@ -203,10 +268,23 @@ class ServiceApiService {
     }
   }
 
+  // Toggle service status (activate/deactivate)
+  async toggleServiceStatus(id: string, isActive: boolean): Promise<{ success: boolean; message: string; data?: Service }> {
+    try {
+      const response = await api.patch(SERVICE_ENDPOINTS.TOGGLE_STATUS(id), { isActive });
+      return response.data;
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        throw error;
+      }
+      throw new ServiceError('Failed to toggle service status');
+    }
+  }
+
   // Complete service
   async completeService(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      const response = await api.patch(SERVICE_ENDPOINTS.COMPLETE(id));
+      const response = await api.post(SERVICE_ENDPOINTS.COMPLETE(id));
       return response.data;
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -233,9 +311,19 @@ class ServiceApiService {
   }
 
   // Get all providers
-  async getProviders(): Promise<ProvidersResponse> {
+  async getProviders(filters?: { page?: number; limit?: number; search?: string; category?: string; minRating?: number }): Promise<ProvidersResponse> {
     try {
-      const response = await api.get<ProvidersResponse>(SERVICE_ENDPOINTS.GET_PROVIDERS);
+      const queryParams = new URLSearchParams();
+      
+      if (filters?.page) queryParams.append('page', String(filters.page));
+      if (filters?.limit) queryParams.append('limit', String(filters.limit));
+      if (filters?.search) queryParams.append('search', filters.search);
+      if (filters?.category) queryParams.append('category', filters.category);
+      if (filters?.minRating) queryParams.append('minRating', String(filters.minRating));
+
+      const url = `${SERVICE_ENDPOINTS.GET_PROVIDERS}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await api.get<ProvidersResponse>(url);
+      
       return response.data;
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -255,6 +343,58 @@ class ServiceApiService {
         throw error;
       }
       throw new ServiceError('Failed to fetch provider details');
+    }
+  }
+
+  // Get top rated providers
+  async getTopRatedProviders(limit?: number): Promise<ProvidersResponse> {
+    try {
+      const url = `${SERVICE_ENDPOINTS.GET_TOP_RATED_PROVIDERS}${limit ? `?limit=${limit}` : ''}`;
+      const response = await api.get<ProvidersResponse>(url);
+      return response.data;
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        throw error;
+      }
+      throw new ServiceError('Failed to fetch top rated providers');
+    }
+  }
+
+  // Search providers by skill
+  async searchProvidersBySkill(skill: string, page?: number, limit?: number): Promise<ProvidersResponse> {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('skill', skill);
+      if (page) queryParams.append('page', String(page));
+      if (limit) queryParams.append('limit', String(limit));
+
+      const url = `${SERVICE_ENDPOINTS.SEARCH_SKILL}?${queryParams.toString()}`;
+      const response = await api.get<ProvidersResponse>(url);
+      return response.data;
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        throw error;
+      }
+      throw new ServiceError('Failed to search providers');
+    }
+  }
+
+  // Get provider services
+  async getProviderServices(providerId: string, includeInactive?: boolean, page?: number, limit?: number): Promise<ServicesResponse> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (includeInactive) queryParams.append('includeInactive', String(includeInactive));
+      if (page) queryParams.append('page', String(page));
+      if (limit) queryParams.append('limit', String(limit));
+
+      const url = `${SERVICE_ENDPOINTS.GET_PROVIDER_SERVICES(providerId)}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await api.get<ServicesResponse>(url);
+      return response.data;
+    } catch (error) {
+      if (error instanceof ServiceError) {
+        throw error;
+      }
+      throw new ServiceError('Failed to fetch provider services');
     }
   }
 
